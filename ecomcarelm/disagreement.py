@@ -11,7 +11,7 @@ DIMENSION_KEYS = (
     "completeness",
     "politeness",
     "safety",
-    "hallucination",
+    "forbidden_content",
     "off_topic",
 )
 
@@ -29,8 +29,8 @@ def normalize_rule_dimensions(record: dict[str, Any]) -> dict[str, float]:
     for key in ("answer_accuracy", "policy_compliance", "completeness", "politeness", "safety"):
         if _is_number(record.get(key)):
             dimensions[key] = round(float(record[key]), 4)
-    if _is_number(record.get("hallucination")):
-        dimensions["hallucination"] = round(1.0 - float(record["hallucination"]), 4)
+    if _is_number(record.get("forbidden_content")):
+        dimensions["forbidden_content"] = round(1.0 - float(record["forbidden_content"]), 4)
     if _is_number(record.get("off_topic")):
         dimensions["off_topic"] = round(1.0 - float(record["off_topic"]), 4)
     return dimensions

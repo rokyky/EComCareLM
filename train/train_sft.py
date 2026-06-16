@@ -53,11 +53,14 @@ def read_jsonl(path: str) -> list[dict[str, Any]]:
     return records
 
 
+RESPONSE_MARKER = "<|im_start|>assistant\n"
+
+
 def format_sft_text(sample: dict[str, Any], eos_token: str) -> str:
     instruction = sample.get("instruction", "")
     sample_input = sample.get("input", "")
     output = sample.get("output", "")
-    return f"<|im_start|>system\n{instruction}<|im_end|>\n<|im_start|>user\n{sample_input}<|im_end|>\n<|im_start|>assistant\n{output}{eos_token}"
+    return f"<|im_start|>system\n{instruction}<|im_end|>\n<|im_start|>user\n{sample_input}<|im_end|>\n{RESPONSE_MARKER}{output}{eos_token}"
 
 
 def main() -> None:
@@ -109,6 +112,8 @@ def main() -> None:
         model = get_peft_model(model, config)
 
     train_records = read_jsonl(args.train_file)
+    if not train_records:
+        raise ValueError(f"训练文件为空：{args.train_file}")
     eval_records = read_jsonl(args.eval_file) if args.eval_file else None
 
     def tokenize(batch: dict[str, list[Any]]) -> dict[str, Any]:
@@ -120,7 +125,21 @@ def main() -> None:
             for ins, inp, out in zip(batch["instruction"], batch["input"], batch["output"])
         ]
         tokenized = tokenizer(texts, truncation=True, max_length=args.max_length)
-        tokenized["labels"] = [ids.copy() for ids in tokenized["input_ids"]]
+
+        # 只对 assistant response 部分计算 loss，prompt 部分 mask 为 -100
+        marker_ids = tokenizer.encode(RESPONSE_MARKER, add_special_tokens=False)
+        marker_len = len(marker_ids)
+        labels = []
+        for input_ids in tokenized["input_ids"]:
+            label = [-100] * len(input_ids)
+            # 从后往前找最后一个 response marker 的位置
+            for i in range(len(input_ids) - marker_len, -1, -1):
+                if input_ids[i : i + marker_len] == marker_ids:
+                    label[i + marker_len :] = input_ids[i + marker_len :]
+                    break
+            labels.append(label)
+
+        tokenized["labels"] = labels
         return tokenized
 
     train_dataset = Dataset.from_list(train_records).map(tokenize, batched=True, remove_columns=list(train_records[0].keys()))
@@ -154,6 +173,12 @@ def main() -> None:
     )
     trainer.train()
     trainer.save_model(args.output_dir)
+
+    if args.use_lora:
+        # 合并 LoRA 权重，使输出目录可直接作为 --model-name-or-path 给 DPO 使用
+        model = model.merge_and_unload()
+        model.save_pretrained(args.output_dir)
+
     tokenizer.save_pretrained(args.output_dir)
 
 

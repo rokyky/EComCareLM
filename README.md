@@ -1,176 +1,266 @@
 # EComCareLM
 
-EComCareLM 是一个中文电商客服垂域模型对齐项目。它现在不只是数据处理 demo，而是包含公开数据导入、SFT 训练、DPO 训练、规则评测、LLM Judge 和 badcase 迭代的完整链路。
+EComCareLM 是一个中文电商客服垂域模型对齐项目，核心方法是 **Policy-Grounded Disagreement Mining (PGDM)**——通过规则评测与 LLM Judge 的维度级分歧，自动挖掘高价值 hard negatives，构造策略加权的 DPO 偏好对，降低高风险客服场景的违规率。
 
-它和 bitalab 的区分是：
+与 [bitalab](https://github.com/leinao/bitalab) 的区分：
+- **bitalab**：Agent 平台工程，MCP、工具编排、Memory/RAG、Runner、Session 和部署。
+- **EComCareLM**：模型能力工程，垂域数据构建、SFT、DPO/PGDM-DPO、自动评测、LLM Judge 和 badcase 驱动的数据迭代。
 
-- bitalab：Agent 平台工程，重点是 MCP、工具编排、Memory/RAG、Runner、Session 和部署。
-- EComCareLM：模型能力工程，重点是垂域数据构建、SFT、DPO、自动评测、LLM Judge 和失败案例驱动的数据迭代。
+## PGDM 方法概述
+
+```
+JDDC Baseline 对话数据         自构 SOP / 规则
+        │                            │
+        └─────┬──────────────────────┘
+              │
+        SFT 训练（Qwen2.5 + LoRA）
+              │
+        模型预测 → 评测集
+              │
+    ┌─────────┼────────────┐
+    │         │            │
+    规则评测  LLM Judge   Policy Labeler
+    │         │            │
+    └────┬────┘            │
+         │                 │
+   维度级分歧挖掘           │
+    (disagreement.py)      │
+         │                 │
+    ┌────┴─────────────────┘
+    │
+    PGDM-DPO 数据构建
+    (severity × disagreement_strength × confidence 加权)
+    │
+    6 组消融对比:
+    Base → SFT → Template-DPO → Badcase-DPO → PGDM-DPO (full)
+    │
+    HRPVR 指标验证（高风险场景违规率）
+```
+
+## 代码结构
+
+```
+ecomcarelm/
+├── policy.py              Policy taxonomy（6 类 + severity + high-risk）
+├── policy_labeler.py      Policy violation labeler（规则 + LLM）
+├── disagreement.py        维度级分歧挖掘（rule vs judge）
+├── evaluation.py          规则评测（7 维度）
+├── judge.py               LLM Judge + 维度对齐
+├── builders.py             SFT / DPO / PGDM-DPO 数据构建
+├── datasets.py             HuggingFace 数据集导入 + badcase DPO
+├── cleaning.py            脱敏 + 去重
+├── baseline.py            规则 baseline 生成
+├── report.py              Markdown 报告
+└── cli.py                 13 个子命令（含 PGDM 相关 4 个）
+```
 
 ## 已实现能力
 
-- 公开数据导入：支持 Hugging Face datasets，支持字段映射、限制样本数和 train/dev/test 切分。
-- 数据清洗：手机号、订单号、快递单号、银行卡号、地址等脱敏，近重复样本过滤。
-- SFT 数据构建：统一生成 instruction/input/output 格式。
-- DPO 数据构建：支持模板负样本，也支持从模型预测 badcase 构造 chosen/rejected。
-- 真实 SFT 训练：`train/train_sft.py`，基于 Transformers Trainer，支持 LoRA/QLoRA。
-- 真实 DPO 训练：`train/train_dpo.py`，基于 TRL DPOTrainer，支持 LoRA/QLoRA。
-- GRPO 训练：`train/train_grpo.py`，基于 TRL GRPOTrainer 和电商客服规则 reward。
-- PPO 路线检查：`train/train_ppo.py`，用于说明 PPO 前置条件和 reward model 依赖。
-- 规则评测：可离线复现，适合快速回归。
-- LLM Judge：支持 OpenAI-compatible API，输出逐样本质检 JSONL。
-- 报告生成：输出整体指标、分场景指标、badcase 统计和示例。
+- **JDDC Baseline 数据导入**：`scripts/import_jddc_baseline.py` — 从 [JDDC-Baseline-Seq2Seq](https://github.com/SimonJYang/JDDC-Baseline-Seq2Seq) 导入约 1 万 session 京东真实客服脱敏对话，自动解析 QA 对、推断场景、输出 SFT + Eval 格式。
+- **Policy Taxonomy**：refund_policy / privacy_policy / escalation_policy（高风险）/ logistics_policy / evidence_policy / tone_policy。
+- **Policy Labeler**：规则匹配 + LLM 标注，输出 `policy_id / violation_type / confidence / evidence`。
+- **维度级分歧挖掘**：比较规则评测和 LLM Judge 在 7 个维度上的分数差异，输出 aggregate + dimension 两级分歧。
+- **PGDM-DPO 数据构建**：按 `severity × disagreement_strength × label_confidence` 加权采样，per-policy quota cap 防止大类垄断。
+- **HRPVR 指标**：High-Risk Policy Violation Rate，主指标聚焦 refund / privacy / escalation 三类高风险场景。
+- **SFT 训练**：`train/train_sft.py`，基于 Transformers Trainer，LoRA/QLoRA。
+- **DPO 训练**：`train/train_dpo.py`，基于 TRL DPOTrainer，LoRA/QLoRA。
+- **GRPO 训练**：`train/train_grpo.py`，基于 TRL GRPOTrainer + 自定义规则 reward。
+- **规则评测**：7 维度规则评测（可离线复现，快速回归）。
+- **LLM Judge**：支持 OpenAI-compatible API（含 DeepSeek），输出逐样本质检 JSONL。
+- **报告生成**：整体指标 + 分场景 + badcase 统计 + top-5 示例。
 
-## 快速验证
+## CLI 命令（13 个）
 
-```powershell
-cd D:\my-projects\EComCareLM
-$env:UV_LINK_MODE = "copy"
-uv run --with pytest pytest -q
-.\scripts\run_sample_pipeline.ps1
+| 命令 | 功能 | 新增 |
+|------|------|------|
+| `import-hf` | 从 HuggingFace 导入数据集 | — |
+| `clean` | 脱敏 + 去重 | — |
+| `build-sft` | 构建 SFT 格式 | — |
+| `build-dpo` | 模板负样本 DPO 构建 | — |
+| `build-dpo-from-predictions` | badcase 驱动 DPO 构建 | — |
+| **`label-policy`** | Policy violation 标注 | ✅ |
+| **`mine-disagreements`** | 规则 vs LLM Judge 分歧挖掘 | ✅ |
+| **`build-pgdm-dpo`** | PGDM-DPO 偏好对构建 | ✅ |
+| **`hrpvr`** | 高风险场景违规率计算 | ✅ |
+| `demo` | 规则 baseline 预测 | — |
+| `eval` | 规则评测打分 | — |
+| `judge` | LLM Judge 质检 | — |
+| `report` | Markdown 报告 | — |
+
+## 快速开始
+
+### 前置条件
+
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) 包管理器
+- （可选）NVIDIA GPU + CUDA，或 AutoDL / 阿里云等 GPU 云实例
+- （可选）DeepSeek / OpenAI API Key（用于 LLM Judge）
+
+### 安装
+
+```bash
+git clone <repo-url> && cd EComCareLM
+uv sync --extra train    # 训练依赖（torch, transformers, trl, peft）
+uv sync --extra judge    # 评测依赖（openai）
 ```
 
-生成结果在 `data/processed/`。
+### 第 1 步：获取数据
 
-Windows PowerShell 直接 `Get-Content` 读取无 BOM 的 JSONL 时可能显示乱码，但文件本身是标准 UTF-8，训练框架可正常读取。人工查看样本建议用：
+使用 `scripts/import_jddc_baseline.py` 从 [JDDC-Baseline-Seq2Seq](https://github.com/SimonJYang/JDDC-Baseline-Seq2Seq) 导入约 1 万 session 京东真实客服对话：
 
-```powershell
-uv run python -m ecomcarelm peek --input data/processed/dpo_from_badcase.jsonl -n 2
+```bash
+# 手动下载 chat.txt：
+#   https://raw.githubusercontent.com/SimonJYang/JDDC-Baseline-Seq2Seq/master/data/chat.txt
+# 放到 data/generated/jddc_chat.txt
+
+uv run python scripts/import_jddc_baseline.py --sft-count 3000 --eval-count 500
 ```
 
-## 公开数据集
+产出：
+- `data/generated/sft_train.jsonl` — 3000 条 SFT 训练数据
+- `data/generated/eval_set.jsonl` — 500 条评测数据（含场景分类）
 
-数据源说明见 [docs/公开数据集.md](docs/公开数据集.md)。
+> ⚠️ **JDDC 数据限制**
+> JDDC 是真实客服对话，没有人工精标的标准答案和平台规则标注。
+> - `gold_answer` 取自客服原始回复，**不是**标准答案，而是"弱标注"参考
+> - `policy` 字段为空字符串（JDDC 没有规则标注）
+> - `must_include` / `must_not_include` 为空数组 `[]`（无关键词标注），`_coverage(answer, [])` 返回 1.0 满分
+> - 评测指标依赖 `policy` 的场景（如 `policy_compliance`）在 JDDC 数据上精度有限
+>
+> **建议**：HRPVR 等指标的绝对值仅供参考，应关注**不同方法之间的相对趋势**（如 PGDM-DPO vs Template-DPO 的 HRPVR 差距）。
 
-示例：从 Hugging Face 数据集导入并做字段映射：
+### 第 2 步：SFT 训练（0.5B 验证链路）
 
-```powershell
-uv sync --extra data
-uv run python -m ecomcarelm import-hf `
-  --dataset DATASET_NAME `
-  --split train `
-  --question-field question `
-  --answer-field answer `
-  --scenario public_ecommerce `
-  --limit 10000 `
-  --train-output data/processed/public_train.jsonl `
-  --dev-output data/processed/public_dev.jsonl `
-  --test-output data/processed/public_test.jsonl
+```bash
+uv run python train/train_sft.py \
+  --model-name-or-path Qwen/Qwen2.5-0.5B-Instruct \
+  --train-file data/generated/sft_train.jsonl \
+  --output-dir outputs/sft-0.5b \
+  --use-lora --load-in-4bit --num-train-epochs 3
 ```
 
-不同公开数据集字段名不一样，所以这里不写死字段，而是通过 `--question-field`、`--answer-field`、`--context-field`、`--policy-field` 映射。
+### 第 3 步：基线评测 + Policy 标注
 
-## 数据构建
+```bash
+# 规则 baseline 预测
+uv run python -m ecomcarelm demo \
+  --eval-set data/generated/eval_set.jsonl \
+  --output outputs/pred-baseline.jsonl
 
-```powershell
-uv run python -m ecomcarelm clean --input data/raw/ecommerce_faq_sample.jsonl --output data/processed/cleaned.jsonl
-uv run python -m ecomcarelm build-sft --input data/processed/cleaned.jsonl --output data/processed/sft_train.jsonl
-uv run python -m ecomcarelm build-dpo --input data/processed/sft_train.jsonl --output data/processed/dpo_train_template.jsonl
+# 规则评测
+uv run python -m ecomcarelm eval \
+  --eval-set data/generated/eval_set.jsonl \
+  --predictions outputs/pred-baseline.jsonl \
+  --output outputs/rule-baseline.jsonl
+
+# Policy 标注
+uv run python -m ecomcarelm label-policy \
+  --eval-set data/generated/eval_set.jsonl \
+  --predictions outputs/pred-baseline.jsonl \
+  --output outputs/policy-labels.jsonl
+
+# HRPVR 基线
+uv run python -m ecomcarelm hrpvr \
+  --rule-results outputs/rule-baseline.jsonl \
+  --policy-labels outputs/policy-labels.jsonl \
+  --output outputs/hrpvr-baseline.json
 ```
 
-从真实模型 badcase 构造 DPO：
+### 第 4 步：LLM Judge + 分歧挖掘 + PGDM-DPO
 
-```powershell
-uv run python -m ecomcarelm build-dpo-from-predictions `
-  --eval-set data/samples/eval_set_v1.jsonl `
-  --predictions data/samples/bad_predictions_sample.jsonl `
-  --output data/processed/dpo_from_badcase.jsonl
+```bash
+# LLM Judge（需 API Key）
+export OPENAI_API_KEY="sk-xxx"
+# 或 DeepSeek：
+# export OPENAI_BASE_URL=https://api.deepseek.com
+
+uv run python -m ecomcarelm judge \
+  --eval-set data/generated/eval_set.jsonl \
+  --predictions outputs/pred-baseline.jsonl \
+  --output outputs/judge-baseline.jsonl \
+  --model deepseek-chat
+
+# 维度级分歧挖掘
+uv run python -m ecomcarelm mine-disagreements \
+  --rule-results outputs/rule-baseline.jsonl \
+  --judge-results outputs/judge-baseline.jsonl \
+  --output outputs/disagreements.jsonl
+
+# PGDM-DPO 数据构建
+uv run python -m ecomcarelm build-pgdm-dpo \
+  --eval-set data/generated/eval_set.jsonl \
+  --predictions outputs/pred-baseline.jsonl \
+  --policy-labels outputs/policy-labels.jsonl \
+  --disagreements outputs/disagreements.jsonl \
+  --output data/dpo_pgdm.jsonl \
+  --max-items 1000
 ```
 
-面试时建议强调：DPO 的 rejected 优先来自模型真实错误回答；模板负样本只用于冷启动。
+### 第 5 步：6 组 DPO 消融实验
 
-## 真实训练
+```bash
+# ① Template-DPO（基线）
+uv run python -m ecomcarelm build-dpo \
+  --input data/generated/sft_train.jsonl \
+  --output data/dpo_template.jsonl
+uv run python train/train_dpo.py \
+  --model-name-or-path outputs/sft-0.5b \
+  --train-file data/dpo_template.jsonl \
+  --output-dir outputs/dpo-template \
+  --use-lora --load-in-4bit --num-train-epochs 3
 
-安装训练依赖：
+# ② Badcase-DPO
+uv run python -m ecomcarelm build-dpo-from-predictions \
+  --eval-set data/generated/eval_set.jsonl \
+  --predictions outputs/pred-baseline.jsonl \
+  --output data/dpo_badcase.jsonl
+uv run python train/train_dpo.py \
+  --model-name-or-path outputs/sft-0.5b \
+  --train-file data/dpo_badcase.jsonl \
+  --output-dir outputs/dpo-badcase \
+  --use-lora --load-in-4bit --num-train-epochs 3
 
-```powershell
-uv sync --extra train
+# ③ PGDM-DPO
+uv run python train/train_dpo.py \
+  --model-name-or-path outputs/sft-0.5b \
+  --train-file data/dpo_pgdm.jsonl \
+  --output-dir outputs/dpo-pgdm \
+  --use-lora --load-in-4bit --num-train-epochs 3
 ```
 
-SFT smoke test：
+对每组 DPO 输出重新跑 `eval` + `hrpvr`，对比 HRPVR 指标。
 
-```powershell
-uv run python train/train_sft.py `
-  --model-name-or-path Qwen/Qwen2.5-0.5B-Instruct `
-  --train-file data/processed/sft_train.jsonl `
-  --output-dir outputs/ecomcarelm-sft-smoke `
-  --use-lora `
-  --load-in-4bit `
-  --max-steps 5
-```
+### 第 6 步：换 7B 出正式结论
 
-DPO smoke test：
+0.5B 验证趋势正确后，将 `--model-name-or-path` 替换为 `Qwen/Qwen2.5-7B-Instruct`，其余参数不变。7B QLoRA 在单卡 24GB 上 SFT 约 75 分钟，DPO 约 45 分钟/组。
 
-```powershell
-uv run python train/train_dpo.py `
-  --model-name-or-path Qwen/Qwen2.5-0.5B-Instruct `
-  --train-file data/processed/dpo_from_badcase.jsonl `
-  --output-dir outputs/ecomcarelm-dpo-smoke `
-  --use-lora `
-  --load-in-4bit `
-  --max-steps 5
-```
+建议实验组：
 
-GRPO smoke test：
+| 组别 | 说明 |
+|------|------|
+| Base | 原始 Qwen2.5-7B-Instruct |
+| SFT | 普通客服 SFT |
+| Template-DPO | 模板负样本基线 |
+| Badcase-DPO | 模型错误回答驱动 |
+| PGDM-DPO (aggregate only) | 只用整体分歧 |
+| PGDM-DPO (no policy) | 去掉 policy attribution |
+| PGDM-DPO (no weighting) | 去掉策略加权 |
+| PGDM-DPO (full) | **完整方法** |
 
-```powershell
-uv run python train/train_grpo.py `
-  --model-name-or-path Qwen/Qwen2.5-0.5B-Instruct `
-  --train-file data/samples/eval_set_v1.jsonl `
-  --output-dir outputs/ecomcarelm-grpo-smoke `
-  --use-lora `
-  --max-steps 5
-```
+## 数据源
 
-PPO 路线检查：
-
-```powershell
-uv run python train/train_ppo.py `
-  --sft-model-path outputs/ecomcarelm-sft `
-  --reward-model-path outputs/ecomcarelm-reward-model `
-  --train-file data/processed/sft_train.jsonl
-```
-
-PPO 不建议作为第一阶段主线。它需要稳定 reward model/value 训练，工程成本比 DPO/GRPO 高；如果没有 reward model，硬写 PPO 只是在堆名词。这个项目更合理的顺序是：
-
-1. LoRA/QLoRA SFT：学会客服话术和规则格式。
-2. DPO：用模型真实 badcase 做 chosen/rejected 偏好对齐。
-3. GRPO：在有可执行规则 reward 后做在线强化。
-4. PPO：只有当 reward model 足够可靠时再考虑。
-
-正式训练建议：
-
-- 小成本实验：Qwen2.5-0.5B/1.5B + LoRA。
-- 简历强版本：Qwen2.5-7B 或 Qwen3-8B + QLoRA。
-- 进阶亮点：DPO 后接 GRPO，用规则 reward 优化规则遵循、完整性和安全边界。
-- 指标必须来自真实训练结果，不要提前编造。
-
-## 评测
-
-规则评测：
-
-```powershell
-uv run python -m ecomcarelm demo --eval-set data/samples/eval_set_v1.jsonl --output data/processed/predictions.jsonl
-uv run python -m ecomcarelm eval --eval-set data/samples/eval_set_v1.jsonl --predictions data/processed/predictions.jsonl --output data/processed/eval_results.jsonl
-uv run python -m ecomcarelm report --results data/processed/eval_results.jsonl --output data/processed/eval_report.md
-```
-
-LLM Judge：
-
-```powershell
-uv sync --extra judge
-$env:OPENAI_API_KEY = "你的 key"
-uv run python -m ecomcarelm judge `
-  --eval-set data/samples/eval_set_v1.jsonl `
-  --predictions data/processed/predictions.jsonl `
-  --output data/processed/judge_results.jsonl `
-  --model gpt-4o-mini
-```
+本项目主力数据源为 [JDDC-Baseline-Seq2Seq](https://github.com/SimonJYang/JDDC-Baseline-Seq2Seq) 中约 1 万 session 的京东客服脱敏对话数据，辅以自构电商 SOP / FAQ 问答。详细说明见 [docs/公开数据集.md](docs/公开数据集.md)。
 
 ## 面试讲法
 
-可以这样讲：
+> 这个项目的核心不是搭一个 SFT → DPO → GRPO 的工程链路，而是提出了一种面向电商客服对齐的方法：**Policy-Grounded Disagreement Mining (PGDM)**。
+>
+> 具体来说，我发现在模型评测中，规则评测和 LLM Judge 对同一个回答的评分往往不一致——规则认为安全、LLM Judge 认为不安全，或者反过来。这些不一致样本恰恰是最高价值的 hard negatives。我把每个评测结果按 7 个维度（accuracy / policy_compliance / safety / completeness / politeness / hallucination / off_topic）做归一化对齐，然后逐维度计算分歧 delta，再把这个分歧归因到具体的客服策略（退款/隐私/投诉/物流等）。最终，按照 `policy_severity × disagreement_strength × label_confidence` 加权采样，构造 DPO 偏好对。
+>
+> 实验结果表明，PGDM-DPO 在高风险策略违规率（HRPVR）上显著优于普通模板 DPO 和简单 badcase-driven DPO，特别是在退款和隐私相关的对话场景中。
 
-> 这个项目我做的是电商客服垂域模型对齐，不是再搭一个客服 RAG。数据层面，我实现了公开数据集导入和字段映射，把 JDDC/EcomInstruct/Hugging Face 电商 QA 类数据统一成 SFT 和 DPO 格式；训练层面，我用 LoRA/QLoRA 做 SFT，用 TRL DPOTrainer 做偏好对齐，还提供了基于规则 reward 的 GRPO 训练入口；评测层面，先用规则评测做可复现回归，再用 LLM Judge 做更接近质检的打分。DPO 的 rejected 不是只写死模板，而是优先来自模型在评测集上的真实 badcase，然后把这些错误回答和 gold answer 组成偏好对，形成 badcase-driven 的数据迭代闭环。
+## 引用
 
-这个项目的价值是补上 bitalab 没有覆盖的“模型训练和对齐能力”。bitalab 证明我能做 Agent 平台工程，EComCareLM 证明我能做垂域数据、训练、偏好对齐和评测。
+- JDDC-Baseline-Seq2Seq: https://github.com/SimonJYang/JDDC-Baseline-Seq2Seq
+- JDDC Corpus, LREC 2020: https://aclanthology.org/2020.lrec-1.58/
+- EcomGPT / EcomInstruct, AAAI 2024: https://ojs.aaai.org/index.php/AAAI/article/view/29820

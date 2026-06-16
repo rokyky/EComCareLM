@@ -1,8 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "EComCareLM 评测样本",
+  "description": "注意：must_include/must_not_include 可为空数组 []。为空时 _coverage(answer, []) 返回 1.0（满分），不影响评测分数。",
   "type": "object",
-  "required": ["case_id", "question", "policy", "scenario", "must_include", "must_not_include"],
+  "required": ["case_id", "question", "policy", "scenario"],
   "properties": {
     "case_id": {"type": "string"},
     "question": {"type": "string"},
@@ -10,7 +11,15 @@
     "policy": {"type": "string"},
     "gold_answer": {"type": "string"},
     "scenario": {"type": "string"},
-    "must_include": {"type": "array", "items": {"type": "string"}},
-    "must_not_include": {"type": "array", "items": {"type": "string"}}
+    "must_include": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "可为空 []，为空时 completeness/policy_compliance 默认满分"
+    },
+    "must_not_include": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "可为空 []，为空时 safety/forbidden_content 不扣分"
+    }
   }
 }

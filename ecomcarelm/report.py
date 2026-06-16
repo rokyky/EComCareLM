@@ -10,7 +10,7 @@ METRIC_LABELS = {
     "completeness": "完整性",
     "politeness": "礼貌性",
     "safety": "安全性",
-    "hallucination": "幻觉率",
+    "forbidden_content": "违禁内容率",
     "off_topic": "答非所问率",
 }
 

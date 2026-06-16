@@ -58,10 +58,8 @@ def label_policy_violation(case: dict[str, Any], prediction: dict[str, Any] | No
         ("tone_policy", "impolite_response", TONE_MARKERS),
         ("refund_policy", "refund_over_denial", REFUND_DENIAL_MARKERS),
     ]
-    if scenario_policy == "logistics_policy":
-        checks.append(("logistics_policy", "logistics_over_promise", OVER_PROMISE_MARKERS))
-    else:
-        checks.append((scenario_policy, "over_promise", OVER_PROMISE_MARKERS))
+    # 始终检查过度承诺，不依赖 scenario_policy（避免 UNKNOWN_POLICY_ID 跳过）
+    checks.append((scenario_policy if scenario_policy != UNKNOWN_POLICY_ID else "refund_policy", "over_promise", OVER_PROMISE_MARKERS))
 
     for policy_id, violation_type, markers in checks:
         if policy_id == UNKNOWN_POLICY_ID:
@@ -107,7 +105,10 @@ def label_policy_violations(
     eval_cases: list[dict[str, Any]],
     predictions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    prediction_by_id = {str(item.get("case_id")): item for item in predictions}
+    prediction_by_id = {}
+    for _i, _p in enumerate(predictions, start=1):
+        _cid = str(_p.get("case_id") or f"eval_{_i:05d}")
+        prediction_by_id[_cid] = _p
     labels: list[dict[str, Any]] = []
     for idx, case in enumerate(eval_cases, start=1):
         case_id = str(case.get("case_id") or f"eval_{idx:05d}")

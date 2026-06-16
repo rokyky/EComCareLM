@@ -5,17 +5,18 @@ import json
 from pathlib import Path
 from typing import Any
 
-from rewards import 客服规则奖励
+from train.rewards import 客服规则奖励
 
 
 def _load_grpo_deps() -> tuple[Any, ...]:
     try:
         from datasets import Dataset
         from peft import LoraConfig
+        from transformers import AutoTokenizer
         from trl import GRPOConfig, GRPOTrainer
     except ImportError as exc:
         raise RuntimeError("缺少 GRPO 训练依赖，请先运行：uv sync --extra train") from exc
-    return Dataset, LoraConfig, GRPOConfig, GRPOTrainer
+    return Dataset, LoraConfig, AutoTokenizer, GRPOConfig, GRPOTrainer
 
 
 def read_jsonl(path: str) -> list[dict[str, Any]]:
@@ -72,10 +73,13 @@ def main() -> None:
     parser.add_argument("--lora-dropout", type=float, default=0.05)
     args = parser.parse_args()
 
-    Dataset, LoraConfig, GRPOConfig, GRPOTrainer = _load_grpo_deps()
+    Dataset, LoraConfig, AutoTokenizer, GRPOConfig, GRPOTrainer = _load_grpo_deps()
     records = read_jsonl(args.train_file)
     dataset = Dataset.from_list(to_grpo_dataset(records))
 
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     peft_config = None
     if args.use_lora:
         peft_config = LoraConfig(
@@ -104,6 +108,7 @@ def main() -> None:
     trainer = GRPOTrainer(
         model=args.model_name_or_path,
         args=config,
+        processing_class=tokenizer,
         reward_funcs=客服规则奖励,
         train_dataset=dataset,
         peft_config=peft_config,

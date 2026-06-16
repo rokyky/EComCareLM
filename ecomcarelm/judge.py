@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re as _re
 from typing import Any
 
 
@@ -10,7 +11,7 @@ def _score_0_to_1(value: Any) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    if number > 1.0:
+    if number >= 1.0:
         number = number / 5.0
     return round(max(0.0, min(1.0, number)), 4)
 
@@ -31,7 +32,7 @@ def normalize_judge_dimensions(record: dict[str, Any]) -> dict[str, float]:
     dimensions: dict[str, float] = {}
     accuracy = _score_0_to_1(record.get("accuracy"))
     if accuracy is not None:
-        dimensions["answer_accuracy"] = accuracy
+        # LLM judge 的 "accuracy" 即为是否符合平台规则，映射到 policy_compliance
         dimensions["policy_compliance"] = accuracy
     for source, target in (
         ("completeness", "completeness"),
@@ -103,10 +104,15 @@ def _load_openai_client() -> Any:
 
 
 def parse_judge_json(text: str) -> dict[str, Any]:
+    """从 LLM 输出中提取 JSON，兼容 ```json ... ``` 包装，不破坏内容中的反引号。"""
     stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.strip("`")
-        stripped = stripped.removeprefix("json").strip()
+    m = _re.match(
+        r"^```(?:json)?\s*\n?(.*?)\n?```\s*$",
+        stripped,
+        _re.DOTALL,
+    )
+    if m:
+        stripped = m.group(1).strip()
     return json.loads(stripped)
 
 

@@ -132,10 +132,13 @@ def build_dpo_from_predictions(
     predictions: list[dict[str, Any]],
     max_items: int | None = None,
 ) -> list[dict[str, Any]]:
-    prediction_by_id = {str(item.get("case_id")): item for item in predictions}
+    prediction_by_id = {}
+    for _i, _p in enumerate(predictions, start=1):
+        _cid = str(_p.get("case_id") or f"pred_{_i:05d}")
+        prediction_by_id[_cid] = _p
     pairs: list[dict[str, Any]] = []
-    for case in eval_cases:
-        case_id = str(case.get("case_id"))
+    for _j, case in enumerate(eval_cases, start=1):
+        case_id = str(case.get("case_id") or f"eval_{_j:05d}")
         prediction = prediction_by_id.get(case_id)
         chosen = case.get("gold_answer") or case.get("answer")
         rejected = prediction.get("answer") if prediction else None

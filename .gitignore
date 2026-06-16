@@ -12,3 +12,7 @@ runs/
 data/raw/*.zip
 data/raw/*.tar
 data/raw/*.tar.gz
+data/generated/
+data/processed/*.jsonl
+data/processed/*.json
+data/processed/*.md
