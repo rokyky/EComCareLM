@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EComCareLM DPO 样本",
+  "type": "object",
+  "required": ["prompt", "chosen", "rejected"],
+  "properties": {
+    "id": {"type": "string"},
+    "prompt": {"type": "string"},
+    "chosen": {"type": "string"},
+    "rejected": {"type": "string"},
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "negative_type": {"type": "string"}
+      }
+    }
+  }
+}

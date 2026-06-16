@@ -1,0 +1,16 @@
+### EComCareLM 的 LLaMA-Factory DPO 配置锚点。
+### 建议从 SFT adapter 继续训练，并采用保守学习率。
+stage: dpo
+do_train: true
+model_name_or_path: Qwen/Qwen2.5-7B-Instruct
+adapter_name_or_path: outputs/ecomcarelm-sft-lora
+dataset: ecomcarelm_dpo
+template: qwen
+finetuning_type: lora
+pref_beta: 0.1
+learning_rate: 0.000005
+num_train_epochs: 1
+cutoff_len: 2048
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+output_dir: outputs/ecomcarelm-dpo-lora

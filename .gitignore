@@ -1,0 +1,14 @@
+.venv/
+.pytest_cache/
+__pycache__/
+*.egg-info/
+*.pyc
+
+outputs/
+checkpoints/
+wandb/
+runs/
+
+data/raw/*.zip
+data/raw/*.tar
+data/raw/*.tar.gz

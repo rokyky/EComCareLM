@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecomcarelm"
+version = "0.1.0"
+description = "中文电商客服 SFT/DPO 数据构建与评测 MVP"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "EComCareLM 贡献者" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+data = ["datasets>=2.18.0"]
+train = [
+  "accelerate>=0.30.0",
+  "datasets>=2.18.0",
+  "peft>=0.11.0",
+  "torch>=2.2.0",
+  "transformers>=4.44.0",
+  "trl>=0.9.6"
+]
+judge = ["openai>=1.40.0"]
+
+[project.scripts]
+ecomcarelm = "ecomcarelm.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ecomcarelm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

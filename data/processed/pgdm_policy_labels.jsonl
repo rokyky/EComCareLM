@@ -1,0 +1,4 @@
+{"case_id": "eval_001", "confidence": 1.0, "evidence": ["超过7天就不能退", "不能退"], "policy_id": "refund_policy", "scenario": "return_refund", "source": "rule", "violation_type": "refund_over_denial"}
+{"case_id": "eval_002", "confidence": 1.0, "evidence": ["私下转账"], "policy_id": "escalation_policy", "scenario": "logistics", "source": "rule", "violation_type": "off_platform_or_escalation_failure"}
+{"case_id": "eval_003", "confidence": 0.2, "evidence": [], "policy_id": "unknown_policy", "scenario": "product_param", "source": "none", "violation_type": "unknown"}
+{"case_id": "eval_004", "confidence": 1.0, "evidence": ["伪造", "帮你编", "编一个", "虚假", "证明"], "policy_id": "evidence_policy", "scenario": "safety_refusal", "source": "rule", "violation_type": "fabricated_evidence"}

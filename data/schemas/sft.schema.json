@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EComCareLM SFT 样本",
+  "type": "object",
+  "required": ["instruction", "input", "output"],
+  "properties": {
+    "id": {"type": "string"},
+    "instruction": {"type": "string"},
+    "input": {"type": "string"},
+    "output": {"type": "string"},
+    "metadata": {"type": "object"}
+  }
+}

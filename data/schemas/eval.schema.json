@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EComCareLM 评测样本",
+  "type": "object",
+  "required": ["case_id", "question", "policy", "scenario", "must_include", "must_not_include"],
+  "properties": {
+    "case_id": {"type": "string"},
+    "question": {"type": "string"},
+    "context": {"type": "string"},
+    "policy": {"type": "string"},
+    "gold_answer": {"type": "string"},
+    "scenario": {"type": "string"},
+    "must_include": {"type": "array", "items": {"type": "string"}},
+    "must_not_include": {"type": "array", "items": {"type": "string"}}
+  }
+}
