@@ -251,13 +251,9 @@ uv run python train/train_dpo.py \
 
 本项目主力数据源为 [JDDC-Baseline-Seq2Seq](https://github.com/SimonJYang/JDDC-Baseline-Seq2Seq) 中约 1 万 session 的京东客服脱敏对话数据，辅以自构电商 SOP / FAQ 问答。详细说明见 [docs/公开数据集.md](docs/公开数据集.md)。
 
-## 面试讲法
+## 面试准备
 
-> 这个项目的核心不是搭一个 SFT → DPO → GRPO 的工程链路，而是提出了一种面向电商客服对齐的方法：**Policy-Grounded Disagreement Mining (PGDM)**。
->
-> 具体来说，我发现在模型评测中，规则评测和 LLM Judge 对同一个回答的评分往往不一致——规则认为安全、LLM Judge 认为不安全，或者反过来。这些不一致样本恰恰是最高价值的 hard negatives。我把每个评测结果按 7 个维度（accuracy / policy_compliance / safety / completeness / politeness / hallucination / off_topic）做归一化对齐，然后逐维度计算分歧 delta，再把这个分歧归因到具体的客服策略（退款/隐私/投诉/物流等）。最终，按照 `policy_severity × disagreement_strength × label_confidence` 加权采样，构造 DPO 偏好对。
->
-> 实验结果表明，PGDM-DPO 在高风险策略违规率（HRPVR）上显著优于普通模板 DPO 和简单 badcase-driven DPO，特别是在退款和隐私相关的对话场景中。
+面试前请重点阅读 [interview/QA.md](interview/QA.md)（153 题完整回答）和 [interview/onlyQ.md](interview/onlyQ.md）（问题清单快速自测）。两文件按"面试回答→面试官视角→项目结合"三段式组织，覆盖项目总览、数据构建、SFT/LoRA、DPO、PGDM、GRPO、PPO、评测、模型架构、推理部署、Agent 面试等 13 个分类。
 
 ## 引用
 
